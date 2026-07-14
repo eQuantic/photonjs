@@ -1,0 +1,8 @@
+{
+  "name": "@photon/components",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Inventario A/B/C (Box, Row, Card, Button, ...)",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts"
+}

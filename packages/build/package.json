@@ -1,0 +1,8 @@
+{
+  "name": "@photon/build",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Orquestra bundle (Bun plugin), CSS, invoca o engine, manifest, split por ilha",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts"
+}

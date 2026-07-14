@@ -1,0 +1,8 @@
+{
+  "name": "@photon/tokens",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Tokens canônicos do Photon Design System (compartilhados com o mobile equantic-ui).",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts"
+}

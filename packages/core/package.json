@@ -1,0 +1,8 @@
+{
+  "name": "@photon/core",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Component, Stateless/StatefulComponent, State, Element (escopo reativo), BuildContext, Key",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts"
+}

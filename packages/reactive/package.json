@@ -1,0 +1,8 @@
+{
+  "name": "@photon/reactive",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Sinais (signal/computed/effect/batch/untrack), Show/For/Switch, Provider/InheritedComponent",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts"
+}

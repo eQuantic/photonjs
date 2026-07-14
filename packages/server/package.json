@@ -1,0 +1,8 @@
+{
+  "name": "@photon/server",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Render de HTML (SSR/SSG) + streaming + runtime HTTP (Bun.serve)",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts"
+}

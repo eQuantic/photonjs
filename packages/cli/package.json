@@ -1,0 +1,8 @@
+{
+  "name": "@photon/cli",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "CLI: photon dev, build, start, info",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts"
+}

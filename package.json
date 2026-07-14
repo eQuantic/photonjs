@@ -1,0 +1,25 @@
+{
+  "name": "photonjs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Renderer web do Photon — framework full-stack estilo Next.js, sem React, com componentes estilo Flutter e reatividade de sinais.",
+  "workspaces": ["packages/*"],
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "bun test",
+    "engine:build": "cd engine && go build ./...",
+    "ci": "bun run typecheck && bun run lint && bun test && bun run engine:build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.0",
+    "@types/bun": "latest",
+    "@typescript/native-preview": "latest",
+    "typescript": "^5.6.0"
+  }
+}

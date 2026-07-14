@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.photon/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Go engine
+engine/photon-engine
+engine/bin/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

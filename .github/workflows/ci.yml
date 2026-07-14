@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  typescript:
+    name: TypeScript (tsgo + Biome + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install
+        run: bun install
+      - name: Type-check (TypeScript 7 / tsgo)
+        run: bunx tsgo --noEmit
+      - name: Lint & format (Biome)
+        run: bunx biome ci .
+      - name: Tests
+        run: bun test
+
+  engine:
+    name: Go engine (build + vet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Build & vet
+        working-directory: engine
+        run: |
+          go build ./...
+          go vet ./...

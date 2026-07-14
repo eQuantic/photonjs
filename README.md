@@ -5,7 +5,7 @@
 > (Stateless/Stateful, composite pattern), escrito para **TypeScript 7** e **Bun**, com um
 > motor auxiliar em **Go** (imagens, compressão, cache).
 
-**Status:** 🌱 Planejamento / design. Sem código de implementação ainda.
+**Status:** 🏗️ Fase 0 — esqueleto do monorepo no lugar (workspaces Bun, `@photon/tokens` com os tokens do design system, engine Go stub, CI com tsgo/Biome/testes). Núcleo reativo (Fase 1) a seguir.
 
 > **Photon é cross-platform.** O `equantic-ui` é o renderer **mobile** (motor nativo);
 > **PhotonJS** é o renderer **web** (DOM + CSS). Os dois compartilham o **design system**

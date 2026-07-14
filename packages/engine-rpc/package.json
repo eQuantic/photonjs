@@ -1,0 +1,8 @@
+{
+  "name": "@photon/engine-rpc",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Cliente TS do photon-engine (JSON-RPC)",
+  "exports": { ".": "./src/index.ts" },
+  "types": "./src/index.ts"
+}

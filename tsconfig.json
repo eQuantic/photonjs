@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@photon/tokens": ["packages/tokens/src/index.ts"],
+      "@photon/reactive": ["packages/reactive/src/index.ts"],
+      "@photon/core": ["packages/core/src/index.ts"],
+      "@photon/dom": ["packages/dom/src/index.ts"],
+      "@photon/server": ["packages/server/src/index.ts"],
+      "@photon/styling": ["packages/styling/src/index.ts"],
+      "@photon/components": ["packages/components/src/index.ts"],
+      "@photon/router": ["packages/router/src/index.ts"],
+      "@photon/build": ["packages/build/src/index.ts"],
+      "@photon/engine-rpc": ["packages/engine-rpc/src/index.ts"],
+      "@photon/cli": ["packages/cli/src/index.ts"],
+      "create-photon": ["packages/create/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*.ts"],
+  "exclude": ["**/*.test.ts", "**/dist/**", "node_modules"]
+}
