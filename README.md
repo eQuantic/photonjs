@@ -60,6 +60,9 @@ class CounterState extends State<Counter> {
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitetura completa, com esboços de API e decisões.
 - [`docs/LOOK-AND-FEEL.md`](docs/LOOK-AND-FEEL.md) — a sintaxe real: um app de exemplo (board de tarefas) com `Component`, sinais, ilhas e tokens.
 - [`docs/ENGINE.md`](docs/ENGINE.md) — o motor Go (`photon-engine`): protocolo JSON-RPC, pipeline de imagem, chave de cache, distribuição.
+- [`docs/COMPONENT-ANATOMY.md`](docs/COMPONENT-ANATOMY.md) — anatomia de um componente (`Button`/`TextInput`): props → tokens → HTML+CSS atômico emitido.
+- [`docs/SERVER-CLIENT.md`](docs/SERVER-CLIENT.md) — fronteira servidor/cliente: dois grafos, serialização do `loader` → sinal, marcadores de hidratação.
+- [`docs/REACTIVITY.md`](docs/REACTIVITY.md) — o motor reativo por dentro: sinais, auto-tracking, ownership, `For` keyed, no-op no SSR.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — plano de execução em fases, com marcos e critérios de aceite.
 - [`docs/decisions/`](docs/decisions/) — ADRs (registros de decisão):
   - [ADR 0001 — linguagem e tooling (`.ts`, não `.phts`)](docs/decisions/0001-linguagem-e-tooling.md)
