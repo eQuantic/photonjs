@@ -14,14 +14,15 @@ class Counter extends StatefulWidget {
 }
 
 class CounterState extends State<Counter> {
-  count = 0;
+  count = signal(0);
 
   build(context: BuildContext): Widget {
     return Row({
       gap: 12,
       children: [
-        Text(`Contagem: ${this.count}`),
-        Button({ label: "+1", onPressed: () => this.setState(() => this.count++) }),
+        // valor reativo: thunk. Muda o sinal → só este texto atualiza (sem re-build).
+        Text(() => `Contagem: ${this.count.value}`),
+        Button({ label: "+1", onPressed: () => this.count.value++ }),
       ],
     });
   }
@@ -32,14 +33,15 @@ class CounterState extends State<Counter> {
 
 | Pilar | Decisão |
 | --- | --- |
-| **Modelo mental** | Flutter: `StatelessWidget` / `StatefulWidget`, `build(context)`, `setState()`, `BuildContext`, `Key` |
+| **Modelo mental** | Flutter: `StatelessWidget` / `StatefulWidget`, `build(context)`, `BuildContext`, `Key` |
+| **Reatividade** | Sinais de granularidade fina (`signal`/`computed`/`effect`), modelo _build-once_ — muda o valor, muda só o nó ligado |
 | **Padrão central** | Composite — tudo é `Widget`; folhas e composições implementam a mesma interface |
 | **Linguagem de UI** | TypeScript puro, factory functions + classes. Zero JSX, zero template string |
 | **Runtime / bundler** | Bun (servidor, transpile, bundle, package manager, testes) |
 | **Type-checking** | TypeScript 7 (`tsgo`, compilador nativo em Go — ~10x mais rápido) |
 | **Motor auxiliar** | Go (`photon-engine`): imagens, compressão, cache endereçado por conteúdo |
 | **Roteamento** | Baseado em arquivos (`app/`), com layouts aninhados e rotas dinâmicas |
-| **Renderização** | CSR, SSR + hidratação, SSG, ISR e ilhas (partial hydration) por rota |
+| **Renderização** | **Ilhas primeiro** (partial hydration); SSG/SSR/ISR por rota; full hydration como opt-in |
 | **Estilo** | Props tipadas de widget → CSS atômico extraído em build (zero-runtime, cacheável) |
 
 ## Documentos

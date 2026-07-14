@@ -1,7 +1,10 @@
 # Photon — Arquitetura
 
 > Documento vivo. Registra as decisões de design do Photon e o racional por trás delas.
-> Marcações **[DECISÃO ABERTA]** indicam pontos onde a escolha final depende de você.
+> Marcações **[DECISÃO ABERTA]** indicam pontos onde a escolha final ainda depende de você.
+>
+> **Decisões já tomadas (jul/2026):** núcleo baseado em **sinais de granularidade fina**
+> (modelo _build-once_) · hidratação **por ilhas primeiro** (Astro-like).
 
 ---
 
@@ -9,18 +12,22 @@
 
 O Photon parte de três convicções:
 
-1. **A UI é uma árvore de composição imutável.** Você não muta o DOM; você descreve
-   como a árvore _deveria_ ser, e o framework calcula a menor mutação para chegar lá.
-   Esse é o modelo do Flutter e do React — o Photon adota a ergonomia do Flutter.
+1. **A UI é uma árvore de composição declarativa.** Você não muta o DOM na mão; você
+   descreve a estrutura compondo _widgets_ — a ergonomia do Flutter.
 2. **Composite pattern em todo lugar.** Existe uma única abstração — `Widget` — e tudo,
    de um texto a uma página inteira, é um `Widget`. Folhas e composições implementam a
-   mesma interface. Isso é o que dá a sensação "Flutter" na escrita.
-3. **O trabalho pesado desce para onde ele é mais barato.** Reconciliação e regras de
-   negócio ficam em TypeScript. Imagens, compressão e cache — CPU-bound — descem para um
-   binário Go. Type-checking sobe para o compilador nativo do TS 7.
+   mesma interface. É o que dá a sensação "Flutter" na escrita.
+3. **A reatividade é de granularidade fina.** Quando um valor muda, **só o nó de DOM ligado
+   a ele muda** — sem re-executar `build()`, sem difar a árvore. Esse é o modelo de
+   _sinais_ (Solid/preact-signals), e é o que dá ao Photon o desempenho de um app nativo.
 
-O resultado é um framework em que **a experiência do desenvolvedor é 100% TypeScript**,
-mas cujo desempenho não é limitado pelo TypeScript.
+A tensão interessante — e o coração do design — é **casar a escrita do Flutter com a
+reatividade de sinais**. A §3 mostra como. O resumo: você mantém a composição e os
+conceitos Stateless/Stateful do Flutter; o que muda é que estado vira **sinal** e `build()`
+roda **uma vez** (montagem do grafo), não a cada mudança.
+
+O resultado: **experiência de desenvolvimento 100% TypeScript**, com desempenho que não é
+limitado pelo TypeScript (sinais no cliente; Go para imagens/compressão/cache).
 
 ---
 
@@ -28,22 +35,23 @@ mas cujo desempenho não é limitado pelo TypeScript.
 
 ### 2.1 As três árvores
 
-Herdado do Flutter, adaptado para a web. O Photon mantém **três árvores paralelas**:
+Herdado do Flutter, adaptado para a web **e para o modelo de sinais**:
 
-| Árvore | O que é | Vida | Análogo Flutter | Análogo React |
-| --- | --- | --- | --- | --- |
-| **Widget** | Configuração imutável. O que `build()` retorna. Barato de recriar. | Efêmera (recriada a cada build) | `Widget` | Elemento JSX |
-| **Element** | Instância viva na árvore. Guarda `State`, ciclo de vida, faz a reconciliação. | Persistente | `Element` | Fiber |
-| **Node** | O alvo de render. **DOM no cliente**, **buffer de HTML no servidor**. | Persistente | `RenderObject` | DOM |
+| Árvore | O que é | Vida | Papel sob sinais |
+| --- | --- | --- | --- |
+| **Widget** | Configuração declarativa. O que `build()` retorna. | Efêmera (montada 1x) | Descreve a estrutura e onde estão os "buracos reativos" |
+| **Element** | Instância viva. Dona do **escopo reativo** (efeitos, limpeza), do ciclo de vida, do contexto (DI) e das chaves. | Persistente | Owner de efeitos; hospeda reconciliação **localizada** de `For`/`Show` |
+| **Node** | Alvo de render: **DOM no cliente**, **buffer de HTML no servidor**. | Persistente | Atualizado cirurgicamente por efeitos |
 
-Detalhe crucial: no Flutter, a terceira árvore (`RenderObject`) faz _layout e paint_.
-Na web, **layout e paint são delegados ao navegador (CSS)**. Então a terceira árvore do
-Photon é simplesmente o DOM. Isso simplifica muito o motor — não reimplementamos layout.
+Diferença central vs. Flutter/React: **não há diff de árvore inteira**. O `build()` roda uma
+vez e estabelece efeitos reativos que atualizam o DOM diretamente. Reconciliação estrutural
+só acontece **localmente**, dentro de `For` (listas) e `Show`/`Switch` (condicionais). Layout
+e paint continuam delegados ao navegador (CSS), então a terceira árvore é só o DOM.
 
 ```
-  build()            inflate/update           mount/patch
-Widget ───────────▶ Element ───────────────▶ Node (DOM | HTML)
-(imutável)          (persistente, stateful)   (persistente)
+  build() [1x]          efeitos reativos
+Widget ───────────▶ Element ──────────────▶ Node (DOM | HTML)
+(estrutura)         (escopo reativo)    (patch cirúrgico por sinal)
 ```
 
 ### 2.2 Widget
@@ -67,160 +75,187 @@ abstract class StatefulWidget extends Widget {
   createElement(): Element { return new StatefulElement(this); }
 }
 
-// Widgets "host" (folhas que viram DOM) — fornecidos por @photon/widgets:
+// Widgets "host" (folhas que viram DOM) — de @photon/widgets:
 //   Text, Div/Box, Image, Button, Input, Anchor, Column, Row, Stack, ...
-// Internamente estendem RenderWidget, que produz/atualiza um Node.
 ```
 
 **Composite pattern explícito:** `Widget` é o _Component_; `Text`/`Image` são _Leaves_;
 `Column`/`Row`/`Container` são _Composites_ (têm `children`). `build()` compõe a árvore.
 
-### 2.3 Stateless vs Stateful
+> Nota: sob _build-once_, um `StatelessWidget` é essencialmente uma **função de setup** que
+> roda uma vez. Por isso o Photon também aceita **componentes-função** como alternativa leve
+> (`const Avatar = (p) => Image({...})`). Mantemos as classes para o modelo mental Flutter,
+> `Key` e ciclo de vida.
 
-Idêntico ao Flutter, em TypeScript:
+### 2.3 Stateless vs Stateful (com sinais)
+
+O conceito é idêntico ao Flutter — **Stateless** não possui estado próprio; **Stateful**
+possui estado + ciclo de vida. O que muda: estado é **sinal**, e `build()` roda uma vez.
 
 ```ts
-// Sem estado: função pura de (config, context) -> Widget
+// Sem estado: estrutura pura a partir de props/sinais recebidos.
 class Avatar extends StatelessWidget {
   constructor(readonly url: string, readonly size = 40) { super(); }
-
   build(context: BuildContext): Widget {
     return Image({ src: this.url, width: this.size, height: this.size,
       decoration: BoxDecoration({ borderRadius: BorderRadius.circle() }) });
   }
 }
 
-// Com estado: State persiste através de rebuilds
+// Com estado: os campos do State são SINAIS. build() roda 1x e monta o grafo reativo.
 class Counter extends StatefulWidget {
   constructor(readonly start = 0) { super(); }
   createState() { return new CounterState(); }
 }
 
 class CounterState extends State<Counter> {
-  private count = this.widget.start;      // acesso tipado à config via this.widget
+  count = signal(this.widget.start);
+  doubled = computed(() => this.count.value * 2);
 
-  override initState() { /* assinaturas, timers, fetch client-side */ }
-  override dispose() { /* limpeza */ }
+  override initState() { /* efeitos, timers, assinaturas */ }
+  override dispose()   { /* limpeza — efeitos do escopo são liberados automaticamente */ }
 
   build(context: BuildContext): Widget {
     return Row({
       gap: 12,
       children: [
-        Text(`Contagem: ${this.count}`),
-        Button({ label: "+1", onPressed: () =>
-          this.setState(() => { this.count++; }) }),
+        // valor REATIVO: passe um thunk (ou o próprio sinal). O framework assina.
+        Text(() => `Contagem: ${this.count.value} (x2 = ${this.doubled.value})`),
+        // mutação direta — sem setState. Batching automático por microtask.
+        Button({ label: "+1", onPressed: () => this.count.value++ }),
       ],
     });
   }
 }
 ```
 
-Ciclo de vida do `State` (espelhando Flutter): `initState` → `didChangeDependencies` →
-`build` → (`didUpdateWidget` / `setState` → `build`)* → `dispose`.
+Regra ergonômica única: **valor estático → escreva o valor** (`Text("Olá")`); **valor
+reativo → passe um thunk ou sinal** (`Text(() => ...)` / `Text(count)`).
+
+Ciclo de vida do `State`: `initState` (monta, 1x) → `build` (1x) → (efeitos reativos rodam
+sob demanda) → `dispose`. Não há `didUpdateWidget` no sentido de "rebuild": props que mudam
+devem ser **sinais** passados para baixo (a leitura reativa substitui o `didUpdateWidget`).
 
 ### 2.4 BuildContext
 
-É o próprio `Element` (como no Flutter), exposto como interface. É a "localização" do
-widget na árvore e o canal para dados ambientais:
+É o próprio `Element` (como no Flutter), exposto como interface — a "localização" do widget
+na árvore e o canal para dados ambientais:
 
 ```ts
 interface BuildContext {
   dependOnInherited<T>(type: InheritedType<T>): T;  // injeção de dependência (§4)
-  readOnce<T>(type: InheritedType<T>): T;           // sem criar dependência
   readonly router: Router;                          // navegação
   readonly theme: ThemeData;                        // tema
   readonly media: MediaQueryData;                   // viewport, prefers-color-scheme...
   readonly request?: RequestContext;                // SÓ no servidor: headers, cookies, params
+  onDispose(fn: () => void): void;                  // registra limpeza no escopo reativo
 }
 ```
 
 ### 2.5 Key
 
-Identidade de reconciliação, como no Flutter. Sem `Key`, o casamento entre widget novo e
-`Element` existente é por _posição + tipo_. Com `Key` (`ValueKey`, `ObjectKey`,
-`UniqueKey`), o casamento é por identidade — essencial para listas reordenáveis e para
-preservar `State` quando itens mudam de posição.
+Identidade de reconciliação, como no Flutter — relevante sobretudo dentro de `For`. Sem
+`Key`, o casamento é por posição; com `Key` (`ValueKey`, `ObjectKey`, `UniqueKey`), por
+identidade — essencial para listas reordenáveis preservarem estado e DOM.
 
 ---
 
-## 3. Reatividade e reconciliação
+## 3. Reatividade: sinais + escrita Flutter
 
-### 3.1 O modelo
+**[DECISÃO TOMADA]** Núcleo baseado em **sinais de granularidade fina** com rastreamento
+automático de dependências e modelo **build-once**.
 
-**[DECISÃO ABERTA — a mais importante do projeto]**
+### 3.1 O modelo de execução
 
-Adotamos o **modelo Flutter**: `setState()` marca o `Element` como _dirty_; no próximo
-frame o framework re-executa `build()` **apenas na subárvore suja** e reconcilia o
-resultado contra os `Element`s existentes, aplicando o mínimo de mutações no DOM.
+- `build()` roda **uma única vez** por `Element` (fase de _setup_): estabelece a estrutura e
+  os "buracos reativos".
+- Estado vive em **sinais**. Ler `signal.value` dentro de um escopo reativo (um thunk de
+  prop, um `computed`, um `effect`, um `Show/For`) **assina** aquele sinal automaticamente.
+- Escrever no sinal (`signal.value = x`) atualiza **apenas** os nós/efeitos que o leram.
+  Sem re-`build()`, sem diff de árvore.
+- Atualizações são **agrupadas por microtask** (batching automático); `batch(fn)` força
+  agrupamento explícito de várias escritas.
 
-Não é um "VDOM completo re-difado do zero": como no Flutter, `Element`s são reaproveitados
-quando `runtimeType` **e** `key` batem (`Widget.canUpdate`), então a reconciliação é local
-e barata. Recomendo começar por aqui porque é **exatamente o modelo mental que você pediu**
-(Stateless/Stateful, `setState`).
+Isso preserva a **escrita** do Flutter (composição de widgets, Stateless/Stateful) trocando
+o **motor** (rebuild+diff → sinais). É o modelo do SolidJS com a fachada do Flutter.
 
-Alternativas consideradas (podemos evoluir depois):
+### 3.2 Primitivas reativas (`@photon/reactive`)
 
-- **(B) Sinais de granularidade fina** (Solid/preact-signals): sem diffing; cada nó de DOM
-  ligado a um sinal atualiza sozinho. Mais rápido, menos memória — mas menos "Flutter".
-- **(C) Híbrido (recomendação de médio prazo):** API Flutter por fora + sinais para
-  _valores folha_ (texto/atributos) por dentro, evitando rebuild de subárvore quando só um
-  valor muda. É o melhor dos dois mundos; dá pra introduzir sem quebrar a API.
+```ts
+const count   = signal(0);                       // estado
+const doubled = computed(() => count.value * 2); // derivado (memoizado)
+effect(() => console.log(count.value));          // efeito (roda ao mudar)
+batch(() => { count.value++; count.value++; });  // uma só notificação
+untrack(() => count.value);                       // lê sem assinar
+```
 
-**Plano:** v1 no modelo (A); introduzir sinais como otimização opt-in (`Signal<T>`,
-`Computed<T>`) e migrar para (C) quando o reconciliador estiver maduro. A API pública não
-muda.
+**Props reativas.** Toda prop de widget aceita um valor estático **ou** reativo:
 
-### 3.2 Algoritmo de reconciliação (Element.update)
+```ts
+type Reactive<T> = T | Signal<T> | (() => T);
+// static:   Text("Olá")                   → nó fixo
+// reativo:  Text(() => user.name.value)    → atualiza só este nó de texto
+//           Visibility({ visible: isOpen }) → assina o sinal isOpen
+```
 
-Para um `Element` existente recebendo um `Widget` novo:
+### 3.3 Controle de fluxo reativo
 
-1. `Widget.canUpdate(old, new)` = `old.runtimeType === new.runtimeType && old.key === new.key`.
-2. **Bateu** → atualiza no lugar: guarda a nova config, e (Stateful) chama
-   `didUpdateWidget`, marca dirty, re-`build()`. `State` **é preservado**.
-3. **Não bateu** → desmonta a subárvore antiga (`dispose`) e monta a nova.
-4. **Listas de filhos** → algoritmo de casamento por chave + tipo (o mesmo
-   `updateChildren` do Flutter): sincroniza início/fim, casa o miolo por `Key`, e emite
-   inserções/remoções/reordenações mínimas no DOM.
+Como `build()` roda uma vez, condicionais e listas dinâmicas usam **widgets reativos** (não
+`if`/`for` imperativos) — o análogo dos `builder`s do Flutter:
 
-Dois tipos de `Element`:
+```ts
+Show({ when: () => auth.loggedIn.value, child: Dashboard(), fallback: Login() })
 
-- **ComponentElement** (Stateless/Stateful) — não produz DOM; produz um _filho widget_ via
-  `build()`.
-- **RenderElement** (host: `Div`, `Text`, `Image`…) — cria/atualiza **um nó de DOM** e
-  gerencia os filhos DOM. É onde as mutações reais acontecem.
+For({                                   // ~ ListView.builder do Flutter
+  each: () => todos.value,
+  key: (t) => t.id,
+  builder: (t) => TodoRow(t),
+})
 
-### 3.3 Agendamento
+Switch({ children: [
+  Match({ when: () => status.value === "loading", child: Spinner() }),
+  Match({ when: () => status.value === "error",   child: ErrorBox() }),
+]})
+```
 
-`setState` não re-renderiza sincronicamente. Marca o `Element` dirty e agenda um _flush_
-via microtask/`queueMicrotask` (cliente) coalescendo múltiplos `setState` do mesmo tick.
-No servidor o render é sempre síncrono e único (uma passada → HTML).
+`For`/`Show`/`Switch` são os **únicos** pontos que fazem reconciliação estrutural — e ela é
+**local e keyed** (cria/move/remove só o necessário). O resto é efeito reativo puro.
+
+### 3.4 `setState`? Substituído por sinais
+
+Não há `setState`. Estado é sinal; mutação é atribuição. Para quem vem do Flutter, isso
+elimina o boilerplate de `setState(() => ...)`. Quando precisar agrupar várias escritas numa
+única atualização, use `batch(() => { ... })`. (Interop: um `Signal<T>` implementa a
+interface `Listenable`/`ValueNotifier`, então padrões Flutter de `ValueListenableBuilder`
+têm equivalente direto via `Show`/thunk.)
+
+### 3.5 DX: transform opcional para thunks automáticos
+
+O custo de não ter JSX é escrever thunks (`Text(() => ...)`) para valores reativos. Um
+**transform de build-time** (plugin do Bun) pode detectar leituras de sinal dentro de props
+e envolvê-las em thunks automaticamente — dando ergonomia Solid-like (`Text(user.name)` já
+reativo) sem thunk manual. **[DECISÃO ABERTA]** fazer isso na v1 ou manter thunks explícitos
+primeiro (mais simples, mais previsível). Recomendo **explícito primeiro**, transform depois.
 
 ---
 
 ## 4. Estado compartilhado e injeção de dependência
 
-Espelhando Flutter, três mecanismos em camadas:
+Sinais são o primitivo de estado; a distribuição na árvore usa, em camadas:
 
-- **`InheritedWidget`** — propaga dados _para baixo_ na árvore com O(1) de leitura via
-  `context.dependOnInherited(Type)`. Base de temas, sessão, router, stores.
-- **`Listenable` / `ChangeNotifier`** — objeto observável; widgets se inscrevem e
-  reconstroem quando ele notifica. Base de estado mutável compartilhado.
-- **`Provider<T>`** — açúcar ergonômico sobre os dois acima (cria `InheritedWidget` +
-  assina um `Listenable`), para o caso comum de "estado global tipado".
+- **`InheritedWidget` / `Provider<T>`** — fornece um valor (tipicamente um **store de
+  sinais**) para baixo na árvore, lido em O(1) via `context.dependOnInherited(Type)`. Base de
+  tema, sessão, router, stores globais.
+- **Stores** — um objeto com sinais/`computed` (ex.: `class CartStore { items = signal([]);
+  total = computed(...) }`), fornecido por `Provider` e consumido em qualquer widget.
+- **`Listenable`** — interface de interop para fontes externas observáveis.
 
 ```ts
-// Definição
-const SessionProvider = createProvider<Session>();
-
-// Fornecendo no topo
-SessionProvider.provide(session, { child: AppShell() });
-
-// Consumindo em qualquer lugar
-const session = context.dependOnInherited(SessionProvider);
+const CartProvider = createProvider<CartStore>();
+CartProvider.provide(new CartStore(), { child: AppShell() });   // no topo
+const cart = context.dependOnInherited(CartProvider);           // em qualquer lugar
+Text(() => `Total: ${cart.total.value}`);                        // reativo
 ```
-
-Sinais (§3.1-C) coexistem: um `Signal<T>` pode ser fornecido por `Provider` e lido em
-folhas com atualização fina.
 
 ---
 
@@ -228,8 +263,8 @@ folhas com atualização fina.
 
 ### 5.1 Props tipadas → CSS atômico
 
-O Flutter não tem CSS: estilo são _propriedades de widget_ (`padding`, `color`,
-`decoration`). O Photon adota isso e **compila as props em CSS atômico extraído em build**:
+O Flutter não tem CSS: estilo são _propriedades de widget_. O Photon adota isso e **compila
+as props em CSS atômico extraído em build**:
 
 ```ts
 Container({
@@ -240,19 +275,18 @@ Container({
 });
 ```
 
-Em build isso vira classes atômicas deduplicadas:
+vira classes atômicas deduplicadas:
 
 ```css
 .px-16{padding-left:16px;padding-right:16px}.py-8{padding-top:8px;padding-bottom:8px}
 .bg-slate-900{background:#0f172a}.rounded-12{border-radius:12px}
 ```
 
-E o nó final referencia só as classes. **Zero CSS em runtime**, folha única
-**cacheável com hash imutável**, e reuso máximo entre páginas.
+O nó final referencia só as classes. **Zero CSS em runtime**, folha única com **hash
+imutável** (cache perfeito), reuso máximo entre páginas. Props de estilo **reativas** (ex.:
+`color: () => theme.accent.value`) alternam classes via efeito — ainda cirúrgico.
 
 ### 5.2 Layout = flexbox/grid
-
-Os widgets de layout mapeiam diretamente para CSS moderno:
 
 | Widget | CSS |
 | --- | --- |
@@ -268,53 +302,65 @@ Os widgets de layout mapeiam diretamente para CSS moderno:
 
 ### 5.3 Escape hatch
 
-Para controle total: o widget `Box` (alias `Div`) aceita `style`, `className` e
-`attributes` crus, e existe um widget para **todo** elemento HTML (`Section`, `Nav`,
-`Article`, `Button`, `Input`, `Svg`, …). Você nunca fica preso na abstração.
+O widget `Box` (alias `Div`) aceita `style`, `className` e `attributes` crus; há um widget
+para **todo** elemento HTML (`Section`, `Nav`, `Article`, `Svg`, …). Nunca se fica preso.
 
 ---
 
-## 6. Renderização: os modos
+## 6. Renderização: ilhas primeiro
 
-Por rota você escolhe o modo (default inteligente por tipo de página):
+**[DECISÃO TOMADA]** A estratégia primária é **ilhas** (partial hydration, Astro-like):
+a página é **HTML estático inerte**; só as **ilhas** — subárvores marcadas como interativas —
+embarcam JS e hidratam. Como a reatividade é de sinais, cada ilha é um grafo reativo pequeno
+e independente: hidratação **barata, local e paralelizável**.
+
+```ts
+// Página de conteúdo: HTML estático + pontos interativos isolados.
+export default class Post extends StatelessWidget {
+  build(ctx: BuildContext): Widget {
+    return Article({ children: [
+      Prose(this.content),                                  // HTML morto, 0 JS
+      island(LikeButton(this.postId), { on: "visible" }),   // hidrata ao aparecer
+      island(CommentBox(this.postId), { on: "idle" }),      // hidrata quando ocioso
+    ]});
+  }
+}
+```
+
+**Diretivas de hidratação** (por ilha): `on: "load" | "idle" | "visible" | "media(...)"` —
+controlam _quando_ o JS da ilha carrega, minimizando o custo inicial.
+
+### 6.1 Modos de render por rota
 
 | Modo | Quando | Como |
 | --- | --- | --- |
-| **SSG** | Conteúdo estático | Pré-renderiza em build → HTML no CDN |
-| **SSR** | Conteúdo por-requisição/personalizado | Render no servidor Bun a cada request |
+| **SSG** (default) | Conteúdo estático | Pré-render em build → HTML no CDN; ilhas hidratam |
+| **SSR** | Conteúdo por-requisição | Render no servidor Bun a cada request; ilhas hidratam |
 | **ISR** | Estático com revalidação | SSG + revalidação em background por tag/TTL |
-| **CSR/SPA** | Apps atrás de login | Shell mínimo + app no cliente |
-| **Ilhas** | Páginas de conteúdo com pontos interativos | HTML estático + só as ilhas hidratam |
+| **App / full hydration** | Apps atrás de login (SPA-like) | A rota inteira é uma ilha; opt-in por rota |
 
-### 6.1 SSR + hidratação
+Ou seja: **ilhas por padrão**; a hidratação de página inteira é só o caso extremo em que
+"a ilha é a página toda". Um único mecanismo, dois pontos da régua.
 
-**Servidor:**
-1. Router casa a rota → resolve cadeia de `layout`s + `page`.
-2. Executa `loader`s (server-only) → dados.
-3. Constrói a árvore de widgets com os dados → infla em `Element`s → renderiza para
-   string de HTML, com **marcadores de hidratação** e o estado serializado (`<script
-   type="application/json">`).
-4. Faz stream do HTML (§6.3), injeta CSS crítico inline, difere o JS.
+### 6.2 SSR + hidratação de ilhas
 
-**Cliente (hidratação):**
-1. Bundle carrega, reconstrói a árvore de widgets.
-2. Em vez de criar DOM, **adota o DOM existente**: caminha a árvore de `Element`s ao lado
-   do DOM do servidor, religa listeners, restaura `State` (config determinística + dados
-   do loader serializados).
-3. A partir daí, `setState` dirige reconciliação no cliente.
+**Servidor:** router casa a rota → resolve layouts + page → roda `loader`s → monta a árvore
+(sinais lidos pelo seu valor atual, sem reatividade no servidor) → renderiza HTML, com um
+marcador + JSON de estado inicial **por ilha**. Escape de HTML por padrão.
 
-### 6.2 Ilhas (partial hydration)
+**Cliente:** para cada ilha visível/agendada, carrega seu chunk, roda seu `build()` **uma
+vez** para montar o grafo de sinais e efeitos, **adota o DOM existente** (liga efeitos aos
+nós já presentes), religa eventos. O restante da página nunca vira JS.
 
-`island(widget)` marca uma subárvore como interativa; o bundler gera um chunk só para ela
-e só ela hidrata. O resto da página é HTML morto (rápido, sem JS). Ótimo para os requisitos
-de **performance e cache**. É opt-in por widget.
+> **Futuro possível:** _resumability_ (estilo Qwik) — serializar o grafo reativo e retomar
+> sem re-executar `build()` no cliente. Ilhas + sinais já entregam 90% do ganho; deixamos
+> resumability como evolução, não como fundação.
 
 ### 6.3 Streaming SSR
 
-Usando `Bun.serve` e streams, o servidor envia o shell imediatamente e faz stream das
-partes que dependem de dados lentos, com _boundaries_ de `Suspense`-like
-(`AsyncBuilder`/`FutureBuilder`, à la Flutter) que renderizam um fallback e depois o
-conteúdo.
+Com `Bun.serve` + streams, o servidor envia o shell na hora e faz stream das partes lentas,
+com _boundaries_ `AsyncBuilder`/`FutureBuilder` (à la Flutter) que mostram fallback e depois
+o conteúdo.
 
 ---
 
@@ -329,18 +375,14 @@ app/
   error.ts             → boundary de erro
   loading.ts           → fallback de carregamento
   not-found.ts         → 404
-  about/
-    page.ts            → "/about"
+  about/page.ts        → "/about"
   blog/
     layout.ts          → layout aninhado do /blog
     page.ts            → "/blog"
-    [slug]/
-      page.ts          → "/blog/:slug"  (segmento dinâmico)
+    [slug]/page.ts     → "/blog/:slug"  (segmento dinâmico)
   (marketing)/         → grupo de rota (não afeta a URL)
     pricing/page.ts    → "/pricing"
-  api/
-    hello/route.ts     → endpoint "/api/hello" (GET/POST/...)
-  @modal/              → slot paralelo (opcional, fase avançada)
+  api/hello/route.ts   → endpoint "/api/hello" (GET/POST/...)
 ```
 
 Cada `page.ts` exporta:
@@ -348,15 +390,14 @@ Cada `page.ts` exporta:
 ```ts
 export default class HomePage extends StatelessWidget { /* build() */ }
 
-// Opcionais:
-export const loader = async (ctx: LoaderContext) => { /* server-only, retorna dados */ };
-export const action = async (ctx: ActionContext) => { /* mutação server-only */ };
-export const metadata: Metadata = { title: "...", description: "..." };  // ou função
-export const config: RouteConfig = { render: "ssg" | "ssr" | "isr", revalidate: 60 };
+export const loader   = async (ctx: LoaderContext) => { /* server-only, retorna dados */ };
+export const action   = async (ctx: ActionContext) => { /* mutação server-only */ };
+export const metadata: Metadata     = { title: "...", description: "..." };  // ou função
+export const config:   RouteConfig   = { render: "ssg" | "ssr" | "isr" | "app", revalidate: 60 };
 ```
 
-**Rotas tipadas:** o gerador de rotas emite tipos, então `context.router.push("/blog/:slug",
-{ slug })` e `Link({ to, params })` são **verificados em tempo de compilação** (TS 7).
+**Rotas tipadas:** o gerador emite tipos, então `context.router.push("/blog/:slug", { slug
+})` e `Link({ to, params })` são **verificados em tempo de compilação** (TS 7).
 
 ---
 
@@ -364,18 +405,17 @@ export const config: RouteConfig = { render: "ssg" | "ssr" | "isr", revalidate: 
 
 Sem React Server Components, a fronteira é **explícita e simples**:
 
-- **`loader`** — roda no servidor antes do render. Retorna dados serializáveis que o
-  bundler injeta no widget. Análogo a `getServerSideProps`/loader do Remix.
-- **`action`** — função server-only para mutações (submit de formulário), com
-  _progressive enhancement_ (funciona sem JS; melhora com JS).
-- **Código server-only** — arquivos `*.server.ts` (ou o marcador `"use server"`) e os
-  próprios `loader`/`action` são **removidos do bundle do cliente** pelo grafo do bundler.
-  Segredos e acesso a banco nunca vazam.
-- **Interatividade** — `StatefulWidget`s hidratam. Em modo ilha, só a ilha embarca JS.
+- **`loader`** — roda no servidor antes do render; retorna dados serializáveis injetados no
+  widget (vira sinal inicial na ilha, se interativa). Análogo a loader do Remix.
+- **`action`** — função server-only para mutações (submit de form), com _progressive
+  enhancement_ (funciona sem JS; melhora com JS).
+- **Código server-only** — `*.server.ts` (ou marcador `"use server"`) e os próprios
+  `loader`/`action` são **removidos do bundle do cliente** pelo grafo do bundler. Segredos e
+  acesso a banco nunca vazam.
+- **Interatividade** — apenas dentro de `island(...)`; só ilhas embarcam JS.
 
-Cache de dados: helper `cache(fn, { tags, revalidate })` + API `revalidateTag(tag)` para
-ISR sob demanda. Backend do cache: `bun:sqlite`/KV local, ou o motor Go (§10) para o cache
-endereçado por conteúdo compartilhado com o build.
+Cache de dados: `cache(fn, { tags, revalidate })` + `revalidateTag(tag)` para ISR. Backend:
+`bun:sqlite`/KV local ou o motor Go (§10/§11) para cache endereçado por conteúdo.
 
 ---
 
@@ -383,63 +423,50 @@ endereçado por conteúdo compartilhado com o build.
 
 Quatro camadas, todas **endereçadas por conteúdo** (hash das entradas → saída):
 
-1. **Build cache** — `hash(fonte + config)` → artefato. Builds incrementais quase
-   instantâneos.
-2. **Asset cache** — nomes de arquivo com hash → `Cache-Control: immutable`, CDN-friendly.
+1. **Build cache** — `hash(fonte + config)` → artefato. Builds incrementais quase instantâneos.
+2. **Asset cache** — nomes com hash → `Cache-Control: immutable`, CDN-friendly.
 3. **Data cache** — resultados de `loader`/`cache()` com tags e TTL (ISR).
 4. **Page cache** — HTML de SSG/ISR com revalidação por tag.
 
 O **motor Go** mantém o cache endereçado por conteúdo em disco (imagens otimizadas, assets
-comprimidos, artefatos de build), compartilhado entre `dev`, `build` e `start`.
+comprimidos, artefatos), compartilhado entre `dev`, `build` e `start`.
 
 ---
 
-## 10. Imagens e compressão — o widget `Image` e o motor Go
+## 10. Imagens e compressão — widget `Image` + motor Go
 
 ```ts
 Image({ src: "/hero.jpg", width: 1280, quality: 80, format: "auto", priority: true });
 ```
 
-Em build (SSG) ou sob demanda (SSR/dev), o `photon-engine` (Go):
-
-1. Recebe `(fonte, largura(s), qualidade, formato)`.
-2. Produz variantes **redimensionadas** e **convertidas** (AVIF → WebP → JPEG/PNG fallback),
-   otimizadas.
-3. Saída **endereçada por conteúdo** (`hash(fonte+params)`), gravada no cache.
-4. O widget emite `<picture>` com `srcset` responsivo + formatos modernos, `width/height`
-   para evitar layout shift, e `loading=lazy`/`fetchpriority` conforme `priority`.
-
-URLs imutáveis (hash) ⇒ `Cache-Control: immutable` ⇒ cache de CDN/navegador perfeito.
-
-O engine também faz **pré-compressão** (Brotli + Gzip) de todos os assets estáticos, então
-o servidor só envia bytes já comprimidos.
+Em build (SSG) ou sob demanda (SSR/dev), o `photon-engine` (Go): recebe `(fonte, largura(s),
+qualidade, formato)` → produz variantes **redimensionadas** e **convertidas** (AVIF → WebP →
+JPEG/PNG fallback) → saída **endereçada por conteúdo** no cache → o widget emite `<picture>`
+com `srcset` responsivo, `width/height` (sem layout shift) e `loading`/`fetchpriority`
+conforme `priority`. URLs por hash ⇒ `Cache-Control: immutable`. O engine também faz
+**pré-compressão** (Brotli/Gzip) de todos os assets.
 
 ---
 
 ## 11. `photon-engine` (Go) — responsabilidades e protocolo
 
-**Por que Go:** tarefas CPU-bound e de sistema, distribuíveis como **um único binário** por
-plataforma, sem depender do runtime JS. (Ironia simpática: o compilador do TS 7 também é Go.)
+**Por que Go:** tarefas CPU-bound/sistema, distribuíveis como **um binário** por plataforma,
+sem depender do runtime JS. (Ironia simpática: o compilador do TS 7 também é Go.)
 
-**Responsabilidades:**
-- Otimização de imagens (redimensionar, AVIF/WebP/JPEG, quality).
-- Compressão de assets (Brotli/Gzip) em batch.
-- Cache endereçado por conteúdo (hash, store, GC) compartilhado com o build.
-- (Opcional, fase avançada) servidor estático/edge rápido para `photon start` (assets
-  pré-comprimidos, imutáveis, range requests).
+**Responsabilidades:** otimização de imagens · compressão Brotli/Gzip em batch · cache
+endereçado por conteúdo (hash/store/GC) · (fase avançada) servidor estático/edge rápido para
+`photon start`.
 
 **[DECISÃO ABERTA] Biblioteca de imagens:**
-- **libvips via `govips`** — melhor qualidade e velocidade; exige a lib nativa (linkar
-  estático nos binários distribuídos). **Recomendado.**
-- **Pure-Go** (`x/image` + encoders WebP/AVIF em Go) — distribuição trivial (um binário sem
-  deps nativas), porém mais lento e AVIF menos maduro.
+- **libvips via `govips`** — melhor qualidade/velocidade; exige a lib nativa (link estático
+  nos binários). **Recomendado.**
+- **Pure-Go** (`x/image` + encoders WebP/AVIF em Go) — distribuição trivial; mais lento,
+  AVIF menos maduro.
 
-**Protocolo TS ↔ Go:**
-- **Dev:** daemon persistente, **JSON-RPC sobre stdio** (ou socket Unix), para otimização
-  sob demanda sem custo de spawn por request.
-- **Build:** modo batch via CLI.
-- **Distribuição:** binários pré-compilados por plataforma, baixados no `postinstall` ou
-  como optional-dependencies (padrão esbuild/swc). Fallback: build local se Go presente.
+**Protocolo TS ↔ Go:** **dev** = daemon persistente, **JSON-RPC sobre stdio** (ou socket
+Unix), sem custo de spawn por request; **build** = modo batch via CLI. **Distribuição:**
+binários pré-compilados por plataforma (padrão esbuild/swc: optional-deps), com fallback de
+build local se Go presente.
 
 ---
 
@@ -447,51 +474,45 @@ plataforma, sem depender do runtime JS. (Ironia simpática: o compilador do TS 7
 
 | Ferramenta | Papel |
 | --- | --- |
-| **Bun** | Runtime do servidor (`Bun.serve`), transpile TS (strip de tipos), bundle/code-splitting, package manager, test runner (`bun test`), `bun:sqlite` p/ cache |
-| **TypeScript 7 (`tsgo`)** | **Type-checking** (não bundla). Compilador nativo em Go, ~10x mais rápido. Roda em paralelo no `dev` para diagnósticos e no CI como gate |
+| **Bun** | Runtime do servidor (`Bun.serve`), transpile TS, bundle/code-splitting, package manager, testes (`bun test`), `bun:sqlite` p/ cache |
+| **TypeScript 7 (`tsgo`)** | **Type-checking** (não bundla). Compilador nativo em Go, ~10x mais rápido. Roda em paralelo no `dev` e como gate no CI |
 | **Go 1.2x** | `photon-engine` |
-| **Biome** | Lint + format (rápido, um binário) |
+| **Biome** | Lint + format (um binário) |
 
-**Fluxo `dev`:** Bun serve + file watcher → em cada save, rebuild incremental do módulo
-afetado → **HMR via WebSocket**. Diferencial estilo Flutter: **hot reload preservando
-estado** — no HMR, re-executamos `build()` sobre a árvore de `Element`s existente,
-preservando os objetos `State`. Editar a UI sem perder o estado da tela é uma feature-assinatura.
+**`dev`:** Bun serve + watcher → save → rebuild incremental → **HMR via WebSocket**. Como a
+reatividade é de sinais, o hot reload é naturalmente preciso: recriamos só a ilha editada,
+preservando o estado (sinais) das demais.
 
-**Fluxo `build`:** grafo servidor + grafo cliente → tree-shaking/code-splitting (Bun) →
-extração de CSS atômico → otimização de imagens e pré-compressão (motor Go) → manifest com
-hashes. `tsgo` roda como gate de tipos.
+**`build`:** grafo servidor + cliente → tree-shaking/code-splitting por ilha → extração de
+CSS atômico → otimização de imagens + pré-compressão (motor Go) → manifest com hashes.
+`tsgo` como gate de tipos.
 
 ---
 
 ## 13. Monorepo e pacotes
 
-Workspaces do Bun:
-
 ```
 photonjs/
   packages/
-    core/        @photon/core       Widget, Stateless/Stateful, State, Element, BuildContext, Key, reconciliador
-    reactive/    @photon/reactive   InheritedWidget, ChangeNotifier, Provider, Signal/Computed
-    dom/         @photon/dom        Renderer de cliente (mount) + hidratação
-    server/      @photon/server     Renderer de HTML (SSR/SSG) + streaming + runtime HTTP (Bun.serve)
-    widgets/     @photon/widgets    Biblioteca padrão (layout + primitivas HTML + Image, Link, Form...)
-    styling/     @photon/styling    Props → CSS atômico (extração em build)
-    router/      @photon/router     Roteamento por arquivos, rotas tipadas, navegação, data loading
-    build/       @photon/build       Orquestra bundle (Bun), CSS, invoca o engine, manifest
-    engine-rpc/  @photon/engine-rpc  Cliente TS do photon-engine (JSON-RPC)
-    cli/         @photon/cli         `photon dev|build|start|info`
-    create/      create-photon        Scaffolder (`bun create photon`)
-  engine/                             Módulo Go (photon-engine)
-    cmd/photon-engine/
-    internal/{image,cache,compress,server,rpc}/
-  examples/
-    counter/  blog/  dashboard/
-  docs/
-  package.json   tsconfig.json   biome.json
+    reactive/    @photon/reactive   signal, computed, effect, batch, Show/For/Switch, Provider/InheritedWidget
+    core/        @photon/core        Widget, Stateless/Stateful, State, Element (escopo reativo), BuildContext, Key
+    dom/         @photon/dom         Render no cliente (mount 1x + efeitos), reconciliação local de For/Show, hidratação de ilha
+    server/      @photon/server      Render de HTML (SSR/SSG) + streaming + runtime HTTP (Bun.serve)
+    widgets/     @photon/widgets     Biblioteca padrão (layout + primitivas HTML + Image, Link, Form...)
+    styling/     @photon/styling     Props → CSS atômico (extração em build)
+    router/      @photon/router      Roteamento por arquivos, rotas tipadas, navegação, data loading
+    build/       @photon/build        Orquestra bundle (Bun), CSS, invoca o engine, manifest, split por ilha
+    engine-rpc/  @photon/engine-rpc   Cliente TS do photon-engine (JSON-RPC)
+    cli/         @photon/cli          photon dev|build|start|info
+    create/      create-photon         Scaffolder (bun create photon)
+  engine/                              Módulo Go (photon-engine)
+    cmd/photon-engine/  internal/{image,cache,compress,server,rpc}/
+  examples/  counter/  blog/  dashboard/
+  docs/  package.json  tsconfig.json  biome.json
 ```
 
-Grafo de dependências: `core` não depende de nada; `dom`/`server` dependem de `core`;
-`widgets` depende de `core`+`styling`; `router` de `core`+`server`; `cli` amarra tudo.
+Grafo: `reactive` e `core` na base; `dom`/`server` dependem de `core`; `widgets` de
+`core`+`styling`+`reactive`; `router` de `core`+`server`; `cli` amarra tudo.
 
 ---
 
@@ -499,12 +520,11 @@ Grafo de dependências: `core` não depende de nada; `dom`/`server` dependem de 
 
 ```
 my-app/
-  photon.config.ts       # config (rendering default, imagens, alias, plugins)
+  photon.config.ts       # config (render default, imagens, alias, plugins)
   app/                   # rotas (§7)
-    layout.ts  page.ts  ...
   components/            # widgets reutilizáveis
   lib/                   # lógica de negócio, server-only helpers
-  public/                # assets estáticos servidos crus
+  public/                # assets estáticos crus
   styles/                # tokens/tema (ThemeData)
   package.json  tsconfig.json
 ```
@@ -513,50 +533,49 @@ Saída de build:
 
 ```
 .photon/
-  server/     # bundle SSR
-  client/     # bundle de hidratação + chunks (por ilha/rota)
-  static/     # assets com hash + CSS atômico + imagens otimizadas
-  cache/      # cache endereçado por conteúdo (motor Go)
-  manifest.json
+  server/     client/(chunks por ilha)     static/(assets+CSS+imagens, com hash)
+  cache/(endereçado por conteúdo)           manifest.json
 ```
 
 ---
 
 ## 15. Segurança, acessibilidade, SEO
 
-- **Segurança:** escape de HTML por padrão no renderer; `loader`/`action` server-only fora
-  do bundle cliente; CSP gerado; sem `dangerouslySetInnerHTML` — HTML cru exige widget
-  explícito `RawHtml` (auditável).
-- **Acessibilidade:** widgets primitivos emitem HTML semântico; `Semantics(...)` para
-  ARIA; lint de a11y em build.
-- **SEO:** SSG/SSR entregam HTML completo; `metadata` por rota gera `<head>`, Open Graph,
-  sitemap e `robots.txt`.
+- **Segurança:** escape de HTML por padrão; `loader`/`action` fora do bundle cliente; CSP
+  gerado; HTML cru só via widget explícito `RawHtml` (auditável).
+- **Acessibilidade:** primitivas emitem HTML semântico; `Semantics(...)` para ARIA; lint de
+  a11y em build.
+- **SEO:** SSG/SSR entregam HTML completo; `metadata` gera `<head>`, Open Graph, sitemap,
+  `robots.txt`.
 
 ---
 
-## 16. Decisões em aberto (resumo)
+## 16. Decisões
 
-| # | Decisão | Recomendação | Impacto |
+| # | Decisão | Status | Escolha |
 | --- | --- | --- | --- |
-| 1 | Modelo de reatividade (§3.1) | (A) Flutter agora → (C) híbrido com sinais depois | **Alto** — núcleo do motor |
-| 2 | Hidratação default (§6) | Ambos: full-page e ilhas, opt-in por rota | Médio |
-| 3 | Lib de imagens no engine (§11) | libvips via `govips` (qualidade) | Médio — distribuição |
-| 4 | Nome do framework | "Photon" (do repo) | Baixo — cosmético |
-| 5 | Idioma dos docs/API | Docs: PT agora; API/código: EN | Baixo |
-| 6 | Protocolo TS↔Go | JSON-RPC stdio (dev) + batch (build) | Baixo |
+| 1 | Modelo de reatividade (§3) | ✅ **Tomada** | Sinais de granularidade fina, _build-once_, auto-tracking |
+| 2 | Estratégia de hidratação (§6) | ✅ **Tomada** | **Ilhas primeiro**; full hydration = ilha = página (opt-in) |
+| 3 | Transform build-time p/ thunks (§3.5) | 🟡 Aberta | Explícito primeiro; transform depois (recomendado) |
+| 4 | Lib de imagens no engine (§11) | 🟡 Aberta | libvips via `govips` (recomendado) |
+| 5 | Nome do framework | 🟡 Aberta | "Photon" (do repo) |
+| 6 | Idioma dos docs/API | 🟡 Aberta | Docs PT; API/código EN |
+| 7 | Protocolo TS↔Go (§11) | 🟡 Aberta | JSON-RPC stdio (dev) + batch (build) |
 
 ---
 
 ## 17. Como o Photon se posiciona
 
-| | Next.js | Flutter Web | SolidStart | **Photon** |
+| | Next.js | Flutter Web | SolidStart / Astro | **Photon** |
 | --- | --- | --- | --- | --- |
-| UI | React/JSX | Widgets (Dart) | Signals/JSX | **Widgets (TS puro)** |
-| Modelo mental | Componentes/hooks | Stateless/Stateful | Reativo fino | **Stateless/Stateful** |
-| Runtime | Node/Edge | Canvas/DOM próprio | JS | **Bun** |
-| Render alvo | DOM | Canvas (pesado) | DOM | **DOM (semântico)** |
-| Trabalho pesado | Node (sharp) | engine C++ | JS | **Go (photon-engine)** |
+| Escrita da UI | React/JSX | Widgets (Dart) | JSX / `.astro` | **Widgets (TS puro)** |
+| Modelo mental | Componentes/hooks | Stateless/Stateful | Funções + signals | **Stateless/Stateful + signals** |
+| Reatividade | VDOM diff | rebuild+diff | **signals** | **signals (fina)** |
+| Hidratação | full / RSC | full (canvas) | ilhas / server islands | **ilhas primeiro** |
+| Alvo de render | DOM | Canvas (pesado) | DOM | **DOM semântico** |
+| Trabalho pesado | Node (sharp) | engine C++ | Node | **Go (photon-engine)** |
 | CSS | CSS/Tailwind | sem CSS | CSS | **props → CSS atômico** |
 
-O Photon fica no cruzamento: **ergonomia de Flutter, alvo DOM semântico como Next, e um
-motor Go acoplado** para o que o JS faz mal.
+O Photon fica no cruzamento: **escrita e conceitos do Flutter, reatividade de sinais e
+hidratação por ilhas do estado-da-arte web, alvo DOM semântico, e um motor Go acoplado** para
+o que o JS faz mal.
