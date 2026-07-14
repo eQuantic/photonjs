@@ -1,24 +1,34 @@
-# Photon
+# PhotonJS
 
-> Um framework full-stack estilo Next.js, **sem React**, com uma linguagem de composição de UI inspirada no **Flutter** (Stateless/Stateful, composite pattern), escrito para **TypeScript 7** e **Bun**, com um motor auxiliar em **Go** para tarefas pesadas (otimização de imagens, compressão, cache).
+> O **renderer web** do Photon — um sistema de UI cross-platform. Um framework full-stack
+> estilo Next.js, **sem React**, com composição de UI inspirada no **Flutter**
+> (Stateless/Stateful, composite pattern), escrito para **TypeScript 7** e **Bun**, com um
+> motor auxiliar em **Go** (imagens, compressão, cache).
 
 **Status:** 🌱 Planejamento / design. Sem código de implementação ainda.
 
+> **Photon é cross-platform.** O `equantic-ui` é o renderer **mobile** (motor nativo);
+> **PhotonJS** é o renderer **web** (DOM + CSS). Os dois compartilham o **design system**
+> (tokens), o **inventário de componentes** e a **API de `Component`**.
+
 ## A ideia em uma frase
 
-Você descreve a UI compondo _widgets_ em TypeScript puro — sem JSX, sem `React` — do mesmo jeito que descreveria uma tela no Flutter. O Photon reconcilia essa árvore em DOM real no cliente e em HTML no servidor, com roteamento por arquivos, otimização de imagens e cache de primeira classe.
+Você descreve a UI compondo _components_ em TypeScript puro — sem JSX, sem `React` — do mesmo
+jeito que descreveria uma tela no Flutter. O PhotonJS reconcilia essa árvore em DOM real no
+cliente e em HTML no servidor, com roteamento por arquivos, design system, otimização de
+imagens e cache de primeira classe.
 
 ```ts
-class Counter extends StatefulWidget {
+class Counter extends StatefulComponent {
   createState() { return new CounterState(); }
 }
 
 class CounterState extends State<Counter> {
   count = signal(0);
 
-  build(context: BuildContext): Widget {
+  build(context: BuildContext): Component {
     return Row({
-      gap: 12,
+      gap: Space.S3,
       children: [
         // valor reativo: thunk. Muda o sinal → só este texto atualiza (sem re-build).
         Text(() => `Contagem: ${this.count.value}`),
@@ -33,9 +43,10 @@ class CounterState extends State<Counter> {
 
 | Pilar | Decisão |
 | --- | --- |
-| **Modelo mental** | Flutter: `StatelessWidget` / `StatefulWidget`, `build(context)`, `BuildContext`, `Key` |
+| **Modelo mental** | Flutter: `StatelessComponent` / `StatefulComponent`, `build(context)`, `BuildContext`, `Key` |
 | **Reatividade** | Sinais de granularidade fina (`signal`/`computed`/`effect`), modelo _build-once_ — muda o valor, muda só o nó ligado |
-| **Padrão central** | Composite — tudo é `Widget`; folhas e composições implementam a mesma interface |
+| **Padrão central** | Composite (GoF) — tudo é `Component`; folhas e composições implementam a mesma interface |
+| **Design system** | Tokens do **Photon** (cores/tipo/espaço/raio/elevação) compartilhados com o mobile `equantic-ui` |
 | **Linguagem de UI** | TypeScript puro, factory functions + classes. Zero JSX, zero template string |
 | **Runtime / bundler** | Bun (servidor, transpile, bundle, package manager, testes) |
 | **Type-checking** | TypeScript 7 (`tsgo`, compilador nativo em Go — ~10x mais rápido) |
@@ -47,6 +58,7 @@ class CounterState extends State<Counter> {
 ## Documentos
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitetura completa, com esboços de API e decisões.
+- [`docs/LOOK-AND-FEEL.md`](docs/LOOK-AND-FEEL.md) — a sintaxe real: um app de exemplo (board de tarefas) com `Component`, sinais, ilhas e tokens.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — plano de execução em fases, com marcos e critérios de aceite.
 
 ## Por que não React?
