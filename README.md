@@ -61,7 +61,9 @@ class CounterState extends State<Counter> {
 - [`docs/LOOK-AND-FEEL.md`](docs/LOOK-AND-FEEL.md) — a sintaxe real: um app de exemplo (board de tarefas) com `Component`, sinais, ilhas e tokens.
 - [`docs/ENGINE.md`](docs/ENGINE.md) — o motor Go (`photon-engine`): protocolo JSON-RPC, pipeline de imagem, chave de cache, distribuição.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — plano de execução em fases, com marcos e critérios de aceite.
-- [`docs/decisions/`](docs/decisions/) — ADRs (registros de decisão). Começa por [ADR 0001 — linguagem e tooling (`.ts`, não `.phts`)](docs/decisions/0001-linguagem-e-tooling.md).
+- [`docs/decisions/`](docs/decisions/) — ADRs (registros de decisão):
+  - [ADR 0001 — linguagem e tooling (`.ts`, não `.phts`)](docs/decisions/0001-linguagem-e-tooling.md)
+  - [ADR 0002 — convenção de nomes de arquivo (`nome.papel.ts`, estilo NestJS)](docs/decisions/0002-convencao-de-arquivos.md)
 
 ## Por que não React?
 

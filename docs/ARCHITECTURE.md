@@ -366,27 +366,40 @@ Futuro: _resumability_ (Qwik-like) como evolução.
 
 ## 7. Roteamento por arquivos (estrutura fixa)
 
+Convenção de nomes **`nome.papel.ts`** (estilo NestJS — ADR 0002); roteamento **por pasta**.
+
 ```
 app/
-  layout.ts   page.ts   error.ts   loading.ts   not-found.ts
-  about/page.ts                → "/about"
-  blog/ layout.ts  page.ts  [slug]/page.ts   → "/blog", "/blog/:slug"
-  (marketing)/pricing/page.ts  → "/pricing" (grupo, não afeta URL)
-  api/hello/route.ts           → "/api/hello"
+  app.layout.ts                       → shell raiz
+  home.page.ts                        → "/"
+  about/about.page.ts                 → "/about"
+  blog/
+    blog.layout.ts                    → layout de /blog
+    blog.page.ts                      → "/blog"
+    [slug]/post.page.ts               → "/blog/:slug"   ([param] = segmento dinâmico)
+  (marketing)/pricing/pricing.page.ts → "/pricing"      ((grupo) não afeta a URL)
+  api/hello/hello.route.ts            → "/api/hello"
 ```
 
-`page.ts` exporta: `default` (o `Component`), e opcionais `loader` (server-only, dados),
-`action` (mutação server-only), `metadata` (SEO), `config` (`render: ssg|ssr|isr|app`).
-**Rotas tipadas:** `Link`/`router.push` verificados em compile-time (TS 7).
+Regra: **pasta = URL**; dentro da pasta o router acha o único `*.page.ts` + opcionais
+`*.layout.ts`/`*.error.ts`/`*.loading.ts`/`*.not-found.ts`; `*.route.ts` = endpoint de API. O
+prefixo (nome) é livre. Um `*.page.ts` exporta `default` (o `Component`) e opcionais `loader`
+(server-only, dados), `action` (mutação server-only), `metadata` (SEO), `config`
+(`render: ssg|ssr|isr|app`). **Rotas tipadas:** `Link`/`router.push` verificados em compile-time.
 
 ---
 
 ## 8. Fronteira servidor/cliente e dados
 
-- **`loader`** — server-only; retorna dados serializáveis (viram sinal inicial na ilha).
-- **`action`** — mutação server-only, com progressive enhancement.
-- **Server-only** — `*.server.ts` / `"use server"` e `loader`/`action` **saem do bundle**.
-- **Interatividade** — só dentro de `island(...)`.
+Fronteira **codificada no nome do arquivo** (ADR 0002):
+
+- **`*.server.ts` / `*.route.ts` / `*.loader.ts` / `*.action.ts`** — server-only; **nunca** vão
+  ao bundle do cliente (e `loader`/`action` exportados de um `*.page.ts` idem).
+- **`*.island.ts`** — o **único** ponto que embarca JS no cliente; ganha **chunk próprio**. O
+  *quando* hidratar vem do use-site: `island(Comp, { on: "load|idle|visible|media" })`.
+- **Universal** — todo o resto: renderiza no servidor; só vai ao cliente se alcançável por ilha.
+- **`loader`** retorna dados serializáveis (viram sinal inicial na ilha); **`action`** é mutação
+  com progressive enhancement.
 
 Cache de dados: `cache(fn, { tags, revalidate })` + `revalidateTag(tag)` (ISR).
 
@@ -472,9 +485,15 @@ photonjs/
 
 ```
 my-app/
-  photon.config.ts   app/(rotas)   components/   lib/   public/   styles/(tema)   package.json
+  photon.config.ts
+  app/          home.page.ts   app.layout.ts   blog/blog.page.ts   api/hello/hello.route.ts
+  components/   task-card.component.ts   tasks-board.island.ts
+  stores/       cart.store.ts
+  lib/          tasks.server.ts
+  public/       styles/theme.ts   package.json
 ```
-Saída: `.photon/{server, client(chunks/ilha), static(assets+CSS+imagens), cache, manifest.json}`.
+Nomes seguem `nome.papel.ts` (ADR 0002). Saída:
+`.photon/{server, client(chunks/ilha), static(assets+CSS+imagens), cache, manifest.json}`.
 
 ---
 

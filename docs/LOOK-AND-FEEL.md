@@ -41,6 +41,7 @@ Elevation.E1              // "card em repouso" (no dark ganha borda 1px sozinho)
 Sem estado próprio: só recebe dados e compõe. Repare que **estilo são props com tokens**.
 
 ```ts
+// components/task-card.component.ts
 import { StatelessComponent, BuildContext, Component } from "@photon/core";
 import { Card, Row, Column, Spacer, Text, Title, Caption, Avatar, Checkbox,
          IconButton, Icons } from "@photon/components";
@@ -92,12 +93,13 @@ O board mantém o estado (tarefas + busca) em **sinais**. `build()` roda uma vez
 depois é ligado por thunk/`For`/`Show`.
 
 ```ts
+// components/tasks-board.island.ts   (sufixo .island = fronteira de hidratação / chunk próprio)
 import { StatefulComponent, State, BuildContext, Component } from "@photon/core";
 import { signal, computed } from "@photon/reactive";
 import { Column, Row, Spacer, SearchField, Button, Label, Divider, EmptyState,
          Show, For, Icons } from "@photon/components";
 import { Space } from "@photon/tokens";
-import { TaskCard } from "./TaskCard";
+import { TaskCard } from "./task-card.component";
 import type { Task } from "../lib/tasks";
 
 export class TasksBoard extends StatefulComponent {
@@ -163,15 +165,16 @@ board quando você digita — só o `Label` e a lista filtrada reagem, cirurgica
 
 ## 4. A página — `loader` (servidor) → sinal (ilha)
 
-`app/tasks/page.ts`. O `loader` roda **só no servidor**; seus dados são serializados e semeiam
-o sinal da ilha no cliente. Só o board é uma **ilha** — o `AppBar` é HTML estático (0 JS).
+`app/tasks/tasks.page.ts`. O `loader` roda **só no servidor**; seus dados são serializados e
+semeiam o sinal da ilha no cliente. Só o board é uma **ilha** — o `AppBar` é HTML estático (0 JS).
 
 ```ts
+// app/tasks/tasks.page.ts
 import { StatelessComponent, BuildContext, Component } from "@photon/core";
 import { Scaffold, AppBar, island } from "@photon/components";
 import type { LoaderContext, Metadata, RouteConfig } from "@photon/router";
-import { listTasks } from "../../lib/tasks";        // *.server via import de lib server-only
-import { TasksBoard } from "../../components/TasksBoard";
+import { listTasks } from "../../lib/tasks.server";        // *.server: fora do bundle do cliente
+import { TasksBoard } from "../../components/tasks-board.island";
 
 // server-only: some do bundle do cliente
 export const loader = async (ctx: LoaderContext) => ({
@@ -225,6 +228,7 @@ Para folhas simples, sem estado nem ciclo de vida, um função é suficiente —
 mesmo jeito (composite pattern):
 
 ```ts
+// components/priority-chip.component.ts
 import { Chip } from "@photon/components";
 import { Colors } from "@photon/tokens";
 import type { Priority } from "../lib/tasks";
