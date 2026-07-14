@@ -421,6 +421,9 @@ por hash ⇒ `immutable`. Também faz **pré-compressão** Brotli/Gzip dos asset
 (distribuição trivial). **Protocolo:** dev = daemon JSON-RPC sobre stdio; build = batch CLI.
 **Distribuição:** binários pré-compilados por plataforma (padrão esbuild) + fallback local.
 
+> Especificação completa (mensagens JSON-RPC, pipeline de imagem, chave de cache endereçada por
+> conteúdo, compressão e distribuição): **[`docs/ENGINE.md`](ENGINE.md)**.
+
 ---
 
 ## 12. Toolchain: Bun + TypeScript 7

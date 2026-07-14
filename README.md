@@ -59,7 +59,9 @@ class CounterState extends State<Counter> {
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitetura completa, com esboços de API e decisões.
 - [`docs/LOOK-AND-FEEL.md`](docs/LOOK-AND-FEEL.md) — a sintaxe real: um app de exemplo (board de tarefas) com `Component`, sinais, ilhas e tokens.
+- [`docs/ENGINE.md`](docs/ENGINE.md) — o motor Go (`photon-engine`): protocolo JSON-RPC, pipeline de imagem, chave de cache, distribuição.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — plano de execução em fases, com marcos e critérios de aceite.
+- [`docs/decisions/`](docs/decisions/) — ADRs (registros de decisão). Começa por [ADR 0001 — linguagem e tooling (`.ts`, não `.phts`)](docs/decisions/0001-linguagem-e-tooling.md).
 
 ## Por que não React?
 
